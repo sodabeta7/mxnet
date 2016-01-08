@@ -30,7 +30,9 @@ except ImportError:
 BatchEndParam = namedtuple('BatchEndParams',
                            ['epoch',
                             'nbatch',
-                            'eval_metric'])
+                            'eval_metric',
+                            'batch_label',
+                            'executor_manager'])
 
 def _create_kvstore(kvstore, num_device, arg_params):
     """Create kvstore
@@ -223,6 +225,20 @@ def _train_multi_device(symbol, ctx, arg_names, param_names, aux_names,
                 executor_manager.forward(is_train=True)
                 executor_manager.backward()
 
+                nbatch += 1
+                
+                if batch_end_callback != None:
+                    batch_end_params = BatchEndParam(epoch=epoch,
+                                                     nbatch=nbatch,
+                                                     eval_metric=eval_metric,
+                                                     batch_label=data_batch.label,
+                                                     executor_manager=executor_manager)
+                    if isinstance(batch_end_callback, list):
+                        batch_end_callback[-1](batch_end_params)
+                    else:
+                        batch_end_callback(batch_end_params)
+
+
                 if update_on_kvstore:
                     _update_params_on_kvstore(executor_manager.param_arrays,
                                               executor_manager.grad_arrays,
@@ -235,17 +251,20 @@ def _train_multi_device(symbol, ctx, arg_names, param_names, aux_names,
                                    kvstore=kvstore)
 
                 if monitor is not None:
-                    monitor.toc_print()
+                    monitor.toc_print()            
 
                 # evaluate at end, so out_cpu_array can lazy copy
                 eval_metric.update(data_batch.label, executor_manager.cpu_output_arrays)
-
-                nbatch += 1
+                
+                executor_manager.forward(is_train=True)
+                # executor_manager.backward()
                 # batch callback (for print purpose)
                 if batch_end_callback != None:
                     batch_end_params = BatchEndParam(epoch=epoch,
                                                      nbatch=nbatch,
-                                                     eval_metric=eval_metric)
+                                                     eval_metric=eval_metric,
+                                                     batch_label=data_batch.label,
+                                                     executor_manager=executor_manager)
                     if isinstance(batch_end_callback, list):
                         for call in batch_end_callback:
                             call(batch_end_params)
@@ -278,7 +297,7 @@ def _train_multi_device(symbol, ctx, arg_names, param_names, aux_names,
                 eval_metric.update(eval_batch.label, executor_manager.cpu_output_arrays)
 
             name, value = eval_metric.get()
-            logger.info('Epoch[%d] Validation-%s=%f', epoch, name, value)
+            logger.info('Epoch[%d] Validation-%s=%f', epoch, name, value)        
 
         if epoch_end_callback or epoch + 1 == end_epoch:
             executor_manager.copy_to(arg_params, aux_params)

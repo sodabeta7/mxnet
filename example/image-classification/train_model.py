@@ -2,6 +2,7 @@ import find_mxnet
 import mxnet as mx
 import logging
 import os
+import loss_callback
 
 def fit(args, network, data_loader):
     # kvstore
@@ -76,9 +77,11 @@ def fit(args, network, data_loader):
         initializer        = mx.init.Xavier(factor_type="in", magnitude=2.34),
         **model_args)
 
+    loss_cb = loss_callback.get_loss_batch_callback(model, 1)
     model.fit(
         X                  = train,
         eval_data          = val,
         kvstore            = kv,
-        batch_end_callback = mx.callback.Speedometer(args.batch_size, 50),
+        batch_end_callback = [mx.callback.log_train_metric(1), loss_cb],
+        # batch_end_callback = mx.callback.log_train_metric(50),
         epoch_end_callback = checkpoint)
